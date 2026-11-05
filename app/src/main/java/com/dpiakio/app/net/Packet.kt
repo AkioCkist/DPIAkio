@@ -156,16 +156,17 @@ object PacketBuilder {
         return s + proto + l4Len
     }
 
-    fun tcp(
+    /** Builds a TCP packet into [out] (reused per session, no allocation). Returns its length. */
+    fun tcpInto(
+        out: ByteArray,
         src: ByteArray, srcPort: Int, dst: ByteArray, dstPort: Int,
         seq: Int, ack: Int, flags: Int, window: Int,
         options: ByteArray? = null,
         data: ByteArray? = null, dataOff: Int = 0, dataLen: Int = 0,
-    ): ByteArray {
+    ): Int {
         val optLen = options?.size ?: 0
         val tcpLen = 20 + optLen + dataLen
-        val ipLen = if (src.size == 4) 20 else 40
-        val pkt = ByteArray(ipLen + tcpLen)
+        val pkt = out
         val o = writeIpHeader(pkt, src, dst, PROTO_TCP, tcpLen)
         put16(pkt, o, srcPort); put16(pkt, o + 2, dstPort)
         put32(pkt, o + 4, seq); put32(pkt, o + 8, ack)
@@ -176,13 +177,24 @@ object PacketBuilder {
         if (options != null) System.arraycopy(options, 0, pkt, o + 20, optLen)
         if (data != null && dataLen > 0) System.arraycopy(data, dataOff, pkt, o + 20 + optLen, dataLen)
         put16(pkt, o + 16, fold(sum(pkt, o, tcpLen, pseudo(src, dst, PROTO_TCP, tcpLen))))
-        return pkt
+        return o + tcpLen
     }
 
-    fun udp(src: ByteArray, srcPort: Int, dst: ByteArray, dstPort: Int, data: ByteArray, off: Int, len: Int): ByteArray {
+    fun tcp(
+        src: ByteArray, srcPort: Int, dst: ByteArray, dstPort: Int,
+        seq: Int, ack: Int, flags: Int, window: Int,
+        options: ByteArray? = null,
+        data: ByteArray? = null, dataOff: Int = 0, dataLen: Int = 0,
+    ): ByteArray {
+        val out = ByteArray((if (src.size == 4) 20 else 40) + 20 + (options?.size ?: 0) + dataLen)
+        tcpInto(out, src, srcPort, dst, dstPort, seq, ack, flags, window, options, data, dataOff, dataLen)
+        return out
+    }
+
+    fun udpInto(out: ByteArray, src: ByteArray, srcPort: Int, dst: ByteArray, dstPort: Int,
+                data: ByteArray, off: Int, len: Int): Int {
         val udpLen = 8 + len
-        val ipLen = if (src.size == 4) 20 else 40
-        val pkt = ByteArray(ipLen + udpLen)
+        val pkt = out
         val o = writeIpHeader(pkt, src, dst, PROTO_UDP, udpLen)
         put16(pkt, o, srcPort); put16(pkt, o + 2, dstPort)
         put16(pkt, o + 4, udpLen); put16(pkt, o + 6, 0)
@@ -190,12 +202,36 @@ object PacketBuilder {
         var c = fold(sum(pkt, o, udpLen, pseudo(src, dst, PROTO_UDP, udpLen)))
         if (c == 0) c = 0xFFFF
         put16(pkt, o + 6, c)
-        return pkt
+        return o + udpLen
+    }
+
+    fun udp(src: ByteArray, srcPort: Int, dst: ByteArray, dstPort: Int, data: ByteArray, off: Int, len: Int): ByteArray {
+        val out = ByteArray((if (src.size == 4) 20 else 40) + 8 + len)
+        udpInto(out, src, srcPort, dst, dstPort, data, off, len)
+        return out
     }
 }
 
-/** Hashable flow key. */
-data class FlowKey(val proto: Int, val src: InetAddress, val srcPort: Int, val dst: InetAddress, val dstPort: Int) {
+/**
+ * Hashable flow key compared on raw address bytes: building one per packet costs no
+ * InetAddress allocation. InetAddress views are created lazily (logging / connect only).
+ */
+class FlowKey(val proto: Int, val srcBytes: ByteArray, val srcPort: Int, val dstBytes: ByteArray, val dstPort: Int) {
+    private val hash: Int = run {
+        var h = proto * 31 + srcPort
+        h = h * 31 + dstPort
+        h = h * 31 + srcBytes.contentHashCode()
+        h * 31 + dstBytes.contentHashCode()
+    }
+
+    val src: InetAddress get() = InetAddress.getByAddress(srcBytes)
+    val dst: InetAddress get() = InetAddress.getByAddress(dstBytes)
+
+    override fun hashCode() = hash
+    override fun equals(other: Any?): Boolean = other is FlowKey && other.hash == hash &&
+        other.proto == proto && other.srcPort == srcPort && other.dstPort == dstPort &&
+        other.srcBytes.contentEquals(srcBytes) && other.dstBytes.contentEquals(dstBytes)
+
     override fun toString() = "${fmt(src)}:$srcPort → ${fmt(dst)}:$dstPort"
 
     companion object {

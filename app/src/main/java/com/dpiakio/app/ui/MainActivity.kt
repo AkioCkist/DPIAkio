@@ -52,8 +52,8 @@ import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -134,7 +134,7 @@ private fun App(vm: MainViewModel) {
             if (prep != null) vpnLauncher.launch(prep) else DpiVpnService.start(ctx)
         }
     }
-    val run by vm.runState.collectAsState()
+    val run by vm.runState.collectAsStateWithLifecycle()
 
     // Single backdrop: the background layer. Every glass surface (incl. the tab bar) refracts it,
     // so no full-screen content layer has to be re-recorded each frame.

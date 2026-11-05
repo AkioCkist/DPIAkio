@@ -48,7 +48,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -70,7 +70,7 @@ import com.dpiakio.app.ui.theme.Palette
 
 @Composable
 fun AdvancedScreen(vm: MainViewModel, contentPadding: PaddingValues) {
-    val cfg by vm.config.collectAsState()
+    val cfg by vm.config.collectAsStateWithLifecycle()
     val o = cfg.options
     val edit = vm::editOptions
     val ctx = LocalContext.current
@@ -234,8 +234,8 @@ fun AdvancedScreen(vm: MainViewModel, contentPadding: PaddingValues) {
             }
             ToggleRow("Russia blacklist", "--blacklist", "russia-blacklist.txt · ~91 000 tên miền", BlacklistSource.RUSSIA in o.blacklists,
                 { toggle(BlacklistSource.RUSSIA, it) })
-            val remoteInfo by vm.remoteInfo.collectAsState()
-            val downloading by vm.downloading.collectAsState()
+            val remoteInfo by vm.remoteInfo.collectAsStateWithLifecycle()
+            val downloading by vm.downloading.collectAsStateWithLifecycle()
             ToggleRow("Russia blacklist (bản mới)", null,
                 if (remoteInfo.isEmpty()) "Chưa tải — antizapret.prostovpn.org" else "Cập nhật: $remoteInfo",
                 BlacklistSource.REMOTE in o.blacklists, { toggle(BlacklistSource.REMOTE, it) }, enabled = remoteInfo.isNotEmpty())

@@ -30,7 +30,9 @@ import com.dpiakio.app.core.Stats
 import com.dpiakio.app.net.NativeBridge
 import com.dpiakio.app.net.TunEngine
 import com.dpiakio.app.ui.MainActivity
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.StateFlow
 import java.util.concurrent.Executors
 
@@ -51,6 +53,23 @@ class DpiVpnService : VpnService() {
         override fun run() {
             Stats.sample()
             main.postDelayed(this, 1000)
+        }
+    }
+
+    /**
+     * Statistics are only sampled while some screen collects them (the app UI in foreground).
+     * In the background nothing wakes the main thread every second.
+     */
+    private val scope = kotlinx.coroutines.MainScope()
+    private var samplerJob: kotlinx.coroutines.Job? = null
+
+    private fun startSampler() {
+        if (samplerJob != null) return
+        samplerJob = scope.launch {
+            Stats.snapshot.subscriptionCount.collect { n ->
+                main.removeCallbacks(ticker)
+                if (n > 0 && engine != null) main.post(ticker)
+            }
         }
     }
 
@@ -144,8 +163,7 @@ class DpiVpnService : VpnService() {
             eng.underlyingDns = lastDns
             eng.start()
             Stats.reset()
-            main.removeCallbacks(ticker)
-            main.post(ticker)
+            main.post { startSampler(); if (Stats.snapshot.subscriptionCount.value > 0) { main.removeCallbacks(ticker); main.post(ticker) } }
             _state.value = RunState(Status.RUNNING, networkName, since = System.currentTimeMillis())
             updateNotification()
             AppLog.i("Filter activated, GoodbyeDPI is now running!")
@@ -361,6 +379,7 @@ class DpiVpnService : VpnService() {
         if (_state.value.status == Status.RUNNING || _state.value.status == Status.STARTING)
             _state.value = RunState(Status.STOPPED)
         worker.shutdown()
+        scope.cancel()
         super.onDestroy()
     }
 

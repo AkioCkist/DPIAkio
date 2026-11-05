@@ -317,6 +317,35 @@ Notes:
   background maintenance; re-run step 5 if needed.
 - Reinstalling stops a running VPN session; start it again from the app.
 
+## Battery and background usage
+
+The service holds no wake locks and does no polling while the device is idle:
+
+- the TUN reader and every socket thread block in the kernel until a packet
+  arrives;
+- the session timer (retransmission / idle timeouts) wakes twice per second
+  only while the CPU is already awake; idle UDP flows sleep up to 30 s;
+- traffic statistics are sampled only while the app UI is on screen, and the
+  UI collects state with `collectAsStateWithLifecycle`, so nothing ticks in the
+  background;
+- the rotating Earth only renders while the home screen is visible.
+
+Hot-path costs were reduced for sustained transfers: ACKs advance a ring offset
+instead of shifting the receive buffer, packets are built into a reusable
+per-session buffer, and flow keys compare raw address bytes (no per-packet
+`InetAddress`).
+
+Measured on a Galaxy A34 (release build, AOT `speed`), app process only:
+
+| Scenario | CPU |
+|---|---|
+| VPN on, app in background, 60 s | ~0.4 % of one core |
+| Browser speed test (~30–40 Mbps) | ~12 % of one core (≈13.8 ticks per Mbps, −25 % vs. before) |
+
+The remaining cost scales with traffic: every packet still crosses the TUN
+device and a user-space TCP stack, which is inherent to a no-root VPN design.
+Stop the VPN when it is not needed to save the most battery.
+
 ## Permissions and Android behavior
 
 The manifest declares permissions for:

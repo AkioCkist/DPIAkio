@@ -24,8 +24,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,8 +40,8 @@ import com.dpiakio.app.ui.theme.Palette
 
 @Composable
 fun LogScreen(vm: MainViewModel, contentPadding: PaddingValues) {
-    val lines by AppLog.lines.collectAsState()
-    val cfg by vm.config.collectAsState()
+    val lines by AppLog.lines.collectAsStateWithLifecycle()
+    val cfg by vm.config.collectAsStateWithLifecycle()
     val list = rememberLazyListState()
     val clip = LocalClipboardManager.current
     LaunchedEffect(lines.size) { if (lines.isNotEmpty()) list.animateScrollToItem(lines.size - 1) }

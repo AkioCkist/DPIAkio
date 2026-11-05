@@ -57,8 +57,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
@@ -98,6 +98,7 @@ import com.dpiakio.app.core.Stats
 import com.dpiakio.app.service.DpiVpnService
 import com.dpiakio.app.ui.MainViewModel
 import com.dpiakio.app.ui.theme.Palette
+import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.delay
 
 private enum class UiState { OFF, CONNECTING, ON, ERROR }
@@ -114,7 +115,7 @@ fun HomeScreen(
     onOpenModes: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
-    val run by vm.runState.collectAsState()
+    val run by vm.runState.collectAsStateWithLifecycle()
     val ui = when (run.status) {
         DpiVpnService.Status.RUNNING -> UiState.ON
         DpiVpnService.Status.STARTING -> UiState.CONNECTING
@@ -177,8 +178,12 @@ private fun StatusPill(ui: UiState, error: String) {
 @Composable
 private fun Timer(on: Boolean, since: Long) {
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(on, since) {
-        while (on) { now = System.currentTimeMillis(); delay(1000L - now % 1000L) }
+        // Ticks only while the screen is visible; nothing runs when the app is in background.
+        lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+            while (on) { now = System.currentTimeMillis(); delay(1000L - now % 1000L) }
+        }
     }
     val s = if (on) ((now - since).coerceAtLeast(0) / 1000) else 0L
     val text = buildAnnotatedString {
@@ -217,7 +222,7 @@ private fun NetworkRow(on: Boolean, network: String) {
 
 @Composable
 private fun ProfileChip(vm: MainViewModel, onClick: () -> Unit) {
-    val cfg by vm.config.collectAsState()
+    val cfg by vm.config.collectAsStateWithLifecycle()
     val preset = Presets.byId(cfg.presetId)
     val title = preset?.title ?: (Modesets.info(cfg.modeset)?.title ?: "Cấu hình tuỳ chỉnh")
     Row(
@@ -328,7 +333,7 @@ private fun PowerButton(ui: UiState, onClick: () -> Unit) {
 /** Isolated so the 1 Hz statistics updates recompose only this section. */
 @Composable
 private fun StatsSection(modifier: Modifier = Modifier) {
-    val stats by Stats.snapshot.collectAsState()
+    val stats by Stats.snapshot.collectAsStateWithLifecycle()
     Column(modifier) {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             SpeedTile(Modifier.weight(1f), Icons.Rounded.ArrowUpward, "Tải lên", formatSpeed(stats.upSpeed), formatBytes(stats.up))

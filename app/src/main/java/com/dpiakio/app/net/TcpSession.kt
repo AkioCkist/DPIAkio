@@ -62,7 +62,10 @@ class TcpSession(
     private var sndNxt = iss
     private var clientWnd = synWindow
     private var inBuf = ByteArray(16384)
-    private var inLen = 0                      // inBuf[0, inLen) == seq [sndUna, sndUna+inLen)
+    private var inStart = 0                    // inBuf[inStart, inStart+inLen) == seq [sndUna, sndUna+inLen)
+    private var inLen = 0
+    /** Outgoing packet scratch buffer; every emit() runs under [lock], so one per session is enough. */
+    private val txBuf = ByteArray(TunEngine.MTU + 128)
     private var remoteEof = false
     private var finSent = false
     private var finAcked = false
@@ -181,9 +184,14 @@ class TcpSession(
                 var acked = ack - sndUna
                 val data = minOf(acked, inLen)
                 if (data > 0) {
-                    System.arraycopy(inBuf, data, inBuf, 0, inLen - data)
+                    // O(1): advance the window start instead of shifting the whole buffer per ACK
+                    inStart += data
                     inLen -= data
                     acked -= data
+                    if (inLen == 0) {
+                        inStart = 0
+                        if (inBuf.size > 64 * 1024) inBuf = ByteArray(16384)   // give memory back when drained
+                    }
                 }
                 sndUna = ack
                 if (finSent && ack == sndNxt) finAcked = true
@@ -244,9 +252,9 @@ class TcpSession(
     private fun emit(ack: Int, flags: Int, data: ByteArray? = null, off: Int = 0, len: Int = 0,
                      options: ByteArray? = null, seqOverride: Int? = null) {
         val window = if (flags and TCP_SYN != 0) (QUEUE_MAX).coerceAtMost(0xFFFF) else windowField()
-        val pkt = PacketBuilder.tcp(localAddr, localPort, clientAddr, clientPort,
+        val n = PacketBuilder.tcpInto(txBuf, localAddr, localPort, clientAddr, clientPort,
             seqOverride ?: sndNxt, ack, flags, window, options, data, off, len)
-        eng.writeTun(pkt)
+        eng.writeTun(txBuf, n)
     }
 
     private fun sendAck() = emit(rcvNxt, TCP_ACK)
@@ -269,7 +277,7 @@ class TcpSession(
         var usable = clientWnd - off
         while (off < inLen && usable > 0) {
             val seg = minOf(mss, inLen - off, usable)
-            emit(rcvNxt, TCP_ACK or TCP_PSH, inBuf, off, seg)
+            emit(rcvNxt, TCP_ACK or TCP_PSH, inBuf, inStart + off, seg)
             sndNxt += seg
             off += seg
             usable -= seg
@@ -284,7 +292,7 @@ class TcpSession(
     // ------------------------------------------------------------------ threads
 
     private fun readerLoop() {
-        val buf = ByteArray(32768)
+        val buf = ByteArray(65536)
         val f = fd!!
         try {
             synchronized(lock) {
@@ -301,8 +309,12 @@ class TcpSession(
                 synchronized(lock) {
                     while (inLen >= IN_MAX && state == State.ESTABLISHED) lock.wait(1000)
                     if (state == State.CLOSED) return
-                    if (inLen + n > inBuf.size) inBuf = inBuf.copyOf(maxOf(inBuf.size * 2, inLen + n))
-                    System.arraycopy(buf, 0, inBuf, inLen, n)
+                    if (inStart + inLen + n > inBuf.size) {
+                        // compact once (rare), then grow if still too small
+                        if (inStart > 0) { System.arraycopy(inBuf, inStart, inBuf, 0, inLen); inStart = 0 }
+                        if (inLen + n > inBuf.size) inBuf = inBuf.copyOf(maxOf(inBuf.size * 2, inLen + n))
+                    }
+                    System.arraycopy(buf, 0, inBuf, inStart + inLen, n)
                     inLen += n
                     trySendLocked()
                 }

@@ -60,7 +60,7 @@ class TunEngine(
             val now = System.currentTimeMillis()
             tcp.values.forEach { runCatching { it.tick(now) } }
             udp.values.forEach { runCatching { it.tick(now) } }
-        }, 250, 250, TimeUnit.MILLISECONDS)
+        }, 500, 500, TimeUnit.MILLISECONDS)   // RTO is 800 ms; 2 wake-ups/s is enough
     }
 
     fun stop() {
@@ -80,10 +80,12 @@ class TunEngine(
         if (n > 0) AppLog.i("Đổi mạng: đã reset $n kết nối TCP để ứng dụng kết nối lại ngay")
     }
 
-    fun writeTun(pkt: ByteArray) {
+    fun writeTun(pkt: ByteArray) = writeTun(pkt, pkt.size)
+
+    fun writeTun(pkt: ByteArray, len: Int) {
         if (!running) return
         try {
-            synchronized(out) { out.write(pkt) }
+            synchronized(out) { out.write(pkt, 0, len) }
         } catch (e: Exception) {
             if (running) AppLog.d("TUN write: ${e.message}")
         }
@@ -119,7 +121,7 @@ class TunEngine(
     }
 
     private fun onTcp(p: IpPacket) {
-        val key = FlowKey(PROTO_TCP, InetAddress.getByAddress(p.src), p.srcPort, InetAddress.getByAddress(p.dst), p.dstPort)
+        val key = FlowKey(PROTO_TCP, p.src, p.srcPort, p.dst, p.dstPort)
         val flags = p.flags
         var s = tcp[key]
         if (s != null && flags and TCP_SYN != 0 && flags and TCP_ACK == 0 && p.seq != s.clientIsn) {
@@ -189,7 +191,7 @@ class TunEngine(
         }
         if (toVirtual) return
 
-        val key = FlowKey(PROTO_UDP, InetAddress.getByAddress(p.src), p.srcPort, InetAddress.getByAddress(p.dst), p.dstPort)
+        val key = FlowKey(PROTO_UDP, p.src, p.srcPort, p.dst, p.dstPort)
         var s = udp[key]
         if (s == null) {
             s = UdpSession(this, key, p.src, p.srcPort, p.dst, p.dstPort)
@@ -280,7 +282,8 @@ class UdpSession(
                 val target = key.dst
                 val f = Os.socket(if (target is Inet4Address) AF_INET else AF_INET6, SOCK_DGRAM, 0)
                 eng.protect(f)
-                Os.setsockoptTimeval(f, SOL_SOCKET, SO_RCVTIMEO, StructTimeval.fromMillis(1000))
+                // Long timeout: idle flows sleep; close() (idle tick / shutdown) closes the fd and wakes the reader.
+                Os.setsockoptTimeval(f, SOL_SOCKET, SO_RCVTIMEO, StructTimeval.fromMillis(30_000))
                 Os.connect(f, target, dstPort)
                 synchronized(pending) {
                     fd = f
@@ -312,6 +315,7 @@ class UdpSession(
 
     private fun readLoop(f: FileDescriptor) {
         val buf = ByteArray(65535)
+        val tx = ByteArray(65535 + 48)   // reply packet buffer, reused (single reader thread)
         while (!closed) {
             val n = try { Os.read(f, buf, 0, buf.size) } catch (e: ErrnoException) {
                 if (e.errno == EAGAIN || e.errno == EINTR) continue
@@ -321,7 +325,7 @@ class UdpSession(
             if (n <= 0) continue
             lastActive = System.currentTimeMillis()
             Stats.bytesDown.addAndGet(n.toLong())
-            eng.writeTun(PacketBuilder.udp(dst, dstPort, client, clientPort, buf, 0, n))
+            eng.writeTun(tx, PacketBuilder.udpInto(tx, dst, dstPort, client, clientPort, buf, 0, n))
         }
         close()
     }

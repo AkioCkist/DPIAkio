@@ -73,15 +73,24 @@ object Stats {
     fun reset() {
         listOf(bytesUp, bytesDown, tcpActive, udpActive, tcpTotal, bypassed, fakesSent, dnsRedirected, quicBlocked)
             .forEach { it.set(0) }
+        lastSample = 0L
         snapshot.value = Snapshot()
     }
 
+    @Volatile private var lastSample = 0L
+
+    /** Speeds are normalised to the real elapsed time (sampling pauses while no UI observes). */
     fun sample() {
         val prev = snapshot.value
         val up = bytesUp.get()
         val down = bytesDown.get()
+        val now = android.os.SystemClock.elapsedRealtime()
+        val dt = if (lastSample == 0L) 1000L else (now - lastSample).coerceAtLeast(1L)
+        val fresh = lastSample == 0L || dt > 3000L   // first sample after a pause: no fake spike
+        lastSample = now
         snapshot.value = Snapshot(
-            upSpeed = (up - prev.up).coerceAtLeast(0), downSpeed = (down - prev.down).coerceAtLeast(0),
+            upSpeed = if (fresh) 0 else ((up - prev.up).coerceAtLeast(0) * 1000 / dt),
+            downSpeed = if (fresh) 0 else ((down - prev.down).coerceAtLeast(0) * 1000 / dt),
             up = up, down = down, tcp = tcpActive.get(), udp = udpActive.get(), tcpTotal = tcpTotal.get(),
             bypassed = bypassed.get(), fakes = fakesSent.get(), dns = dnsRedirected.get(), quic = quicBlocked.get(),
         )
