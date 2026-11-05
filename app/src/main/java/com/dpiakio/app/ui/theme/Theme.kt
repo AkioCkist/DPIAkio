@@ -13,27 +13,27 @@ import androidx.compose.ui.unit.sp
 
 /** Deep navy + indigo/violet glow palette. */
 object Palette {
-    val Bg = Color(0xFF03040B)
-    val BgNavy = Color(0xFF070A1F)
-    val Surface = Color(0xFF0B0D22)
-    val Surface2 = Color(0xFF12153A)
-    val Glass = Color(0x0FFFFFFF)
-    val Stroke = Color(0x1AFFFFFF)
-    val Indigo = Color(0xFF4F46E5)
-    val Cyan = Color(0xFF8F95FF)        // periwinkle accent (kept name for screens)
-    val Violet = Color(0xFF7B5CFF)
-    val Pink = Color(0xFFB79CFF)
-    val Lavender = Color(0xFFC7CBFF)
-    val Green = Color(0xFF6EE7B7)
-    val Amber = Color(0xFFFBBF24)
-    val Red = Color(0xFFFB7185)
-    val Text = Color(0xFFF4F5FF)
-    val TextDim = Color(0xFF8C90B8)
-    val TextFaint = Color(0xFF555A82)
+    val Bg = Color(0xFF01030E)
+    val BgNavy = Color(0xFF040A2C)
+    val Surface = Color(0xFF0A1036)
+    val Surface2 = Color(0xFF111A4A)
+    val Glass = Color(0x1A9DB0FF)
+    val Stroke = Color(0x29FFFFFF)
+    val Indigo = Color(0xFF3D5AFE)       // electric blue
+    val Cyan = Color(0xFF7FA2FF)         // accent for icons / tags
+    val Violet = Color(0xFF7C4DFF)
+    val Pink = Color(0xFFB388FF)
+    val Lavender = Color(0xFFC9D4FF)
+    val Green = Color(0xFF5EEAD4)
+    val Amber = Color(0xFFFFC94D)
+    val Red = Color(0xFFFF6B81)
+    val Text = Color(0xFFF5F7FF)
+    val TextDim = Color(0xFFA9B2DD)      // 8.9:1 on Bg
+    val TextFaint = Color(0xFF8189B8)    // 5.6:1 on Bg (WCAG AA for body text)
 
-    val Accent = Brush.linearGradient(listOf(Indigo, Violet))
-    val AccentHot = Brush.linearGradient(listOf(Color(0xFF6D5BFF), Color(0xFFA78BFA)))
-    val CardTop = Brush.verticalGradient(listOf(Color(0xFF1A1950), Color(0xFF0C0E26), Color(0xFF0A0B1E)))
+    val Accent = Brush.linearGradient(listOf(Color(0xFF3D5AFE), Color(0xFF7C4DFF)))
+    val AccentHot = Brush.linearGradient(listOf(Color(0xFF536DFE), Color(0xFFB388FF)))
+    val CardTop = Brush.verticalGradient(listOf(Color(0xFF1B2470), Color(0xFF0B1240), Color(0xFF080D30)))
 }
 
 private val scheme = darkColorScheme(

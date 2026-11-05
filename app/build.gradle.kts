@@ -59,6 +59,8 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     // Installs Compose baseline profiles on sideloaded installs -> AOT compiled, smoother first frames.
     implementation(libs.androidx.profileinstaller)
+    // Liquid Glass (Kyant0/AndroidLiquidGlass): blur + lens refraction + vibrancy backdrops.
+    implementation(libs.kyant.backdrop)
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20250517")

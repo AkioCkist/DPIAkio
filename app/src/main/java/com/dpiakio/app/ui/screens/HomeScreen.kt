@@ -1,17 +1,26 @@
 package com.dpiakio.app.ui.screens
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,31 +30,32 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.rounded.CallSplit
-import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Dns
+import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Hub
-import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.Layers
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PowerSettingsNew
+import androidx.compose.material.icons.rounded.RadioButtonUnchecked
 import androidx.compose.material.icons.rounded.SignalCellularAlt
-import androidx.compose.material.icons.rounded.Terminal
+import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Wifi
 import androidx.compose.material.icons.rounded.WifiOff
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -60,6 +70,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
@@ -67,11 +78,18 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
@@ -81,15 +99,15 @@ import com.dpiakio.app.core.Presets
 import com.dpiakio.app.core.Stats
 import com.dpiakio.app.service.DpiVpnService
 import com.dpiakio.app.ui.MainViewModel
-import com.dpiakio.app.ui.theme.Mono
 import com.dpiakio.app.ui.theme.Palette
 import kotlinx.coroutines.delay
 
-private val TopGlow = Brush.radialGradient(
-    listOf(Color(0x664F46E5), Color(0x223B2AA0), Color.Transparent),
-    center = Offset(540f, -120f), radius = 1100f,
-)
+private enum class UiState { OFF, CONNECTING, ON, ERROR }
 
+/**
+ * Home. The rotating Earth lives in the app background layer (so glass surfaces refract it);
+ * this screen only lays out controls on top of it.
+ */
 @Composable
 fun HomeScreen(
     vm: MainViewModel,
@@ -99,66 +117,73 @@ fun HomeScreen(
     onOpenSettings: () -> Unit,
 ) {
     val run by vm.runState.collectAsState()
-    val on = run.status == DpiVpnService.Status.RUNNING
-    val busy = run.status == DpiVpnService.Status.STARTING
+    val ui = when (run.status) {
+        DpiVpnService.Status.RUNNING -> UiState.ON
+        DpiVpnService.Status.STARTING -> UiState.CONNECTING
+        DpiVpnService.Status.ERROR -> UiState.ERROR
+        DpiVpnService.Status.STOPPED -> UiState.OFF
+    }
 
-    Box(Modifier.fillMaxSize().background(TopGlow)) {
-        Column(
-            Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(top = contentPadding.calculateTopPadding(), bottom = contentPadding.calculateBottomPadding()),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            TopBar(onOpenSettings, onOpenModes)
-            Spacer(Modifier.height(26.dp))
-            Text(
-                when (run.status) {
-                    DpiVpnService.Status.RUNNING -> "Kết nối đã được bảo vệ"
-                    DpiVpnService.Status.STARTING -> "Đang khởi động…"
-                    DpiVpnService.Status.ERROR -> "Lỗi: ${run.error}"
-                    DpiVpnService.Status.STOPPED -> "Chưa bỏ qua DPI"
-                },
-                color = if (run.status == DpiVpnService.Status.ERROR) Palette.Red else Palette.TextDim,
-                style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(horizontal = 24.dp),
-            )
-            Spacer(Modifier.height(6.dp))
-            Timer(on, run.since)
-            Spacer(Modifier.height(10.dp))
-            NetworkRow(on, run.network)
-            Spacer(Modifier.height(14.dp))
-            ProfileChip(vm, onOpenModes)
-
-            // planet + connect button
-            Box(Modifier.fillMaxWidth().height(340.dp), contentAlignment = Alignment.TopCenter) {
-                DottedGlobe(active = on, modifier = Modifier.fillMaxSize())
-                ConnectButton(on, busy, onToggle, Modifier.padding(top = 8.dp))
-            }
-
-            Column(Modifier.padding(horizontal = 20.dp).offset(y = (-40).dp)) {
-                StatsSection()
-                Spacer(Modifier.height(12.dp))
-                CommandCard(vm)
-            }
-        }
+    Column(
+        Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .padding(bottom = contentPadding.calculateBottomPadding()),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        TopBar(onOpenSettings, onOpenModes)
+        Spacer(Modifier.height(14.dp))
+        StatusPill(ui, run.error)
+        Spacer(Modifier.height(6.dp))
+        Timer(ui == UiState.ON, run.since)
+        NetworkRow(ui == UiState.ON, run.network)
+        Spacer(Modifier.height(12.dp))
+        ProfileChip(vm, onOpenModes)
+        Spacer(Modifier.weight(1f))
+        PowerButton(ui, onToggle)
+        Spacer(Modifier.weight(0.6f))
+        StatsSection(Modifier.padding(horizontal = 18.dp))
+        Spacer(Modifier.height(12.dp))
     }
 }
 
 @Composable
 private fun TopBar(onSettings: () -> Unit, onModes: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+        Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        GlassIconButton(Icons.Rounded.Tune, "Tuỳ chỉnh", onSettings)
+        GlassIconButton(Icons.Rounded.Tune, "Mở cài đặt tuỳ chỉnh", onSettings)
         Text(
-            "DPIAKIO",
-            modifier = Modifier.weight(1f),
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            "DPIAKIO", modifier = Modifier.weight(1f), textAlign = TextAlign.Center,
             color = Palette.Text, fontSize = 20.sp, fontWeight = FontWeight.Light, letterSpacing = 7.sp,
         )
-        GlassIconButton(Icons.Rounded.Layers, "Chế độ", onModes, tint = Palette.Amber)
+        GlassIconButton(Icons.Rounded.Layers, "Chọn chế độ", onModes, tint = Palette.Amber)
+    }
+}
+
+/** Status shown with icon + text + colour (never colour alone). Announced by TalkBack. */
+@Composable
+private fun StatusPill(ui: UiState, error: String) {
+    val (icon, text, color) = when (ui) {
+        UiState.ON -> Triple(Icons.Rounded.CheckCircle, "Đã bỏ qua DPI", Palette.Green)
+        UiState.CONNECTING -> Triple(Icons.Rounded.Sync, "Đang kết nối…", Palette.Amber)
+        UiState.ERROR -> Triple(Icons.Rounded.ErrorOutline, "Lỗi: $error", Palette.Red)
+        UiState.OFF -> Triple(Icons.Rounded.RadioButtonUnchecked, "Chưa bảo vệ", Palette.TextDim)
+    }
+    Row(
+        Modifier
+            .padding(horizontal = 24.dp)
+            .clip(CircleShape)
+            .background(color.copy(alpha = 0.14f))
+            .border(1.dp, color.copy(alpha = 0.35f), CircleShape)
+            .semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite }
+            .padding(horizontal = 14.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, tint = color, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(text, color = color, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -172,12 +197,14 @@ private fun Timer(on: Boolean, since: Long) {
     val s = if (on) ((now - since).coerceAtLeast(0) / 1000) else 0L
     val text = buildAnnotatedString {
         append("%02d:%02d".format(s / 3600, s / 60 % 60))
-        withStyle(SpanStyle(color = Palette.TextDim.copy(alpha = 0.75f))) { append(":%02d".format(s % 60)) }
+        withStyle(SpanStyle(color = Palette.Cyan.copy(alpha = 0.85f))) { append(":%02d".format(s % 60)) }
     }
     Text(
-        text, color = if (on) Palette.Text else Palette.Text.copy(alpha = 0.55f),
-        fontSize = 58.sp, fontWeight = FontWeight.Bold, letterSpacing = (-1).sp,
+        text,
+        color = if (on) Palette.Text else Palette.Text.copy(alpha = 0.6f),
+        fontSize = 60.sp, fontWeight = FontWeight.Bold, letterSpacing = (-1).sp,
         style = MaterialTheme.typography.displayLarge.copy(fontFeatureSettings = "tnum"),
+        modifier = Modifier.semantics { contentDescription = "Thời gian bảo vệ ${s / 3600} giờ ${s / 60 % 60} phút" },
     )
 }
 
@@ -185,14 +212,15 @@ private fun Timer(on: Boolean, since: Long) {
 private fun NetworkRow(on: Boolean, network: String) {
     val lost = network.startsWith("Mất")
     val wifi = network.contains("Wi-Fi")
-    Row(verticalAlignment = Alignment.CenterVertically) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.semantics(mergeDescendants = true) {}) {
         Box(
-            Modifier.size(22.dp).clip(CircleShape).background(if (on && !lost) Palette.Accent else SolidGlass),
+            Modifier.size(24.dp).clip(CircleShape)
+                .background(if (on && !lost) Palette.Accent else Brush.linearGradient(listOf(Color(0x33FFFFFF), Color(0x33FFFFFF)))),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
                 if (lost) Icons.Rounded.WifiOff else if (wifi || !on) Icons.Rounded.Wifi else Icons.Rounded.SignalCellularAlt,
-                null, tint = Color.White, modifier = Modifier.size(13.dp),
+                null, tint = Color.White, modifier = Modifier.size(14.dp),
             )
         }
         Spacer(Modifier.width(8.dp))
@@ -201,94 +229,111 @@ private fun NetworkRow(on: Boolean, network: String) {
     }
 }
 
-private val SolidGlass = Brush.linearGradient(listOf(Color(0x22FFFFFF), Color(0x22FFFFFF)))
-
 @Composable
 private fun ProfileChip(vm: MainViewModel, onClick: () -> Unit) {
     val cfg by vm.config.collectAsState()
     val preset = Presets.byId(cfg.presetId)
+    val title = preset?.title ?: (Modesets.info(cfg.modeset)?.title ?: "Cấu hình tuỳ chỉnh")
     Row(
         Modifier
-            .clip(RoundedCornerShape(50))
-            .background(Color(0x12FFFFFF))
-            .border(1.dp, Color(0x1AFFFFFF), RoundedCornerShape(50))
-            .clickable(onClick = onClick)
-            .padding(start = 5.dp, end = 14.dp, top = 5.dp, bottom = 5.dp),
+            .heightIn(min = 48.dp)
+            .liquidGlass(LocalBackdrop.current, CircleShape, refraction = 14.dp, tint = Color(0x14020617), dispersion = true)
+            .clip(CircleShape)
+            .clickable(role = Role.Button, onClickLabel = "Đổi chế độ", onClick = onClick)
+            .padding(start = 6.dp, end = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.clip(RoundedCornerShape(50)).background(Palette.Accent).padding(horizontal = 9.dp, vertical = 3.dp)) {
+        Box(Modifier.clip(CircleShape).background(Palette.Accent).padding(horizontal = 10.dp, vertical = 4.dp)) {
             Text(if (cfg.modeset > 0) "-${cfg.modeset}" else "custom", color = Color.White,
-                fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                fontWeight = FontWeight.Bold, fontSize = 13.sp)
         }
-        Spacer(Modifier.width(8.dp))
-        Text(preset?.title ?: (Modesets.info(cfg.modeset)?.title ?: "Cấu hình tuỳ chỉnh"),
-            color = Palette.Lavender, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Spacer(Modifier.width(10.dp))
+        Text(title, color = Palette.Lavender, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
 /**
- * Round button with gradient ring. All animated values are read inside draw / graphicsLayer
- * lambdas so the composable itself never recomposes per frame.
+ * Main action. Icon shows what tapping will do: power (start) when off, pause (stop) when
+ * running. Glass core refracts the planet behind it; ring + glow are drawn in the draw phase.
  */
 @Composable
-private fun ConnectButton(on: Boolean, busy: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun PowerButton(ui: UiState, onClick: () -> Unit) {
+    val on = ui == UiState.ON
+    val busy = ui == UiState.CONNECTING
     val level = remember { Animatable(if (on) 1f else 0f) }
-    LaunchedEffect(on, busy) { level.animateTo(if (on) 1f else if (busy) 0.5f else 0f, tween(700, easing = FastOutSlowInEasing)) }
-    // Infinite animations exist only while connecting / connected: idle screen draws nothing per frame.
+    LaunchedEffect(ui) { level.animateTo(if (on) 1f else if (busy) 0.4f else 0f, tween(650, easing = FastOutSlowInEasing)) }
     val spin = if (busy) rememberInfiniteTransition(label = "spin")
-        .animateFloat(0f, 360f, infiniteRepeatable(tween(1100, easing = LinearEasing)), label = "spin") else null
-    val breathe = if (on) rememberInfiniteTransition(label = "breathe")
-        .animateFloat(0.85f, 1f, infiniteRepeatable(tween(2200, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "breathe") else null
-    val press = remember { MutableInteractionSource() }
+        .animateFloat(0f, 360f, infiniteRepeatable(tween(1000, easing = LinearEasing)), label = "spin") else null
+    val source = remember { MutableInteractionSource() }
+    val pressed by source.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (pressed) 0.92f else 1f, spring(0.45f, Spring.StiffnessMediumLow), label = "press")
+    val haptic = LocalHapticFeedback.current
+    val ringColor = if (ui == UiState.ERROR) Palette.Red else Palette.Violet
 
-    Box(modifier.size(176.dp), contentAlignment = Alignment.Center) {
-        // glow + ring
-        Box(
-            Modifier.fillMaxSize().drawBehind {
+    Box(
+        Modifier
+            .size(196.dp)
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .drawBehind {
                 val l = level.value
                 val r = size.minDimension / 2
-                val glow = breathe?.value ?: 1f
                 drawCircle(
                     Brush.radialGradient(
-                        listOf(Palette.Violet.copy(alpha = 0.55f * l * glow), Palette.Indigo.copy(alpha = 0.18f * l), Color.Transparent),
+                        0f to ringColor.copy(alpha = 0.65f * l), 0.55f to Palette.Indigo.copy(alpha = 0.35f * l), 1f to Color.Transparent,
                         center = center, radius = r,
                     ), radius = r,
                 )
-                val ringR = r * 0.66f
-                val w = 7.dp.toPx()
-                drawCircle(Color(0xFF0B0C24), radius = ringR + w)
-                drawCircle(Color(0x22FFFFFF), radius = ringR, style = Stroke(w))
-                if (busy) {
-                    rotate(spin?.value ?: 0f) {
-                        drawArc(
-                            Brush.sweepGradient(listOf(Color.Transparent, Palette.Lavender), center),
-                            0f, 270f, false, topLeft = Offset(center.x - ringR, center.y - ringR),
-                            size = androidx.compose.ui.geometry.Size(ringR * 2, ringR * 2), style = Stroke(w, cap = StrokeCap.Round),
-                        )
+                val ringR = r * 0.64f
+                val w = 9.dp.toPx()
+                val box = Size(ringR * 2, ringR * 2)
+                val tl = Offset(center.x - ringR, center.y - ringR)
+                drawCircle(Color(0x33FFFFFF), radius = ringR, style = Stroke(w))
+                if (spin != null) {
+                    rotate(spin.value) {
+                        drawArc(Brush.sweepGradient(listOf(Color.Transparent, Palette.Lavender), center),
+                            0f, 280f, false, tl, box, style = Stroke(w, cap = StrokeCap.Round))
                     }
                 } else if (l > 0.01f) {
                     drawArc(
-                        Brush.linearGradient(listOf(Color(0xFFC4B5FD), Palette.Violet, Palette.Indigo),
+                        Brush.linearGradient(listOf(Color(0xFFD1C4FF), ringColor, Palette.Indigo),
                             start = Offset(center.x, center.y - ringR), end = Offset(center.x, center.y + ringR)),
-                        -90f, 360f * l, false, topLeft = Offset(center.x - ringR, center.y - ringR),
-                        size = androidx.compose.ui.geometry.Size(ringR * 2, ringR * 2), style = Stroke(w, cap = StrokeCap.Round),
+                        -90f, 360f * l, false, tl, box, style = Stroke(w, cap = StrokeCap.Round),
                     )
                 }
-            }
-        )
+            },
+        contentAlignment = Alignment.Center,
+    ) {
         Column(
             Modifier
-                .size(116.dp)
+                .size(110.dp)
+                .liquidGlass(LocalBackdrop.current, CircleShape, refraction = 16.dp, tint = Color(0x59030820), dispersion = true)
                 .clip(CircleShape)
-                .clickable(interactionSource = press, indication = null, onClick = onClick),
+                .clickable(interactionSource = source, indication = null, role = Role.Button,
+                    onClickLabel = if (on) "Dừng" else "Bật") {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onClick()
+                }
+                .semantics {
+                    contentDescription = if (on || busy) "Dừng bỏ qua DPI" else "Bật bỏ qua DPI"
+                    stateDescription = when (ui) {
+                        UiState.ON -> "Đang hoạt động"; UiState.CONNECTING -> "Đang kết nối"
+                        UiState.ERROR -> "Lỗi"; UiState.OFF -> "Đã tắt"
+                    }
+                },
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            Icon(Icons.Rounded.KeyboardArrowUp, "Bật/Tắt", tint = Color.White,
-                modifier = Modifier.size(44.dp).graphicsLayer { alpha = 0.6f + 0.4f * level.value })
+            AnimatedContent(
+                targetState = on || busy,
+                transitionSpec = { (scaleIn(initialScale = 0.6f) + fadeIn()) togetherWith (scaleOut(targetScale = 0.6f) + fadeOut()) },
+                label = "icon",
+            ) { running ->
+                Icon(if (running) Icons.Rounded.Pause else Icons.Rounded.PowerSettingsNew, null,
+                    tint = Color.White, modifier = Modifier.size(44.dp))
+            }
             Text(
-                when { on -> "Đã kết nối"; busy -> "Đang nối…"; else -> "Kết nối" },
-                color = Palette.TextDim, fontSize = 12.sp,
+                when (ui) { UiState.ON -> "Dừng"; UiState.CONNECTING -> "Huỷ"; else -> "Bật" },
+                color = Palette.Lavender, fontSize = 13.sp, fontWeight = FontWeight.Medium,
             )
         }
     }
@@ -296,63 +341,49 @@ private fun ConnectButton(on: Boolean, busy: Boolean, onClick: () -> Unit, modif
 
 /** Isolated so the 1 Hz statistics updates recompose only this section. */
 @Composable
-private fun StatsSection() {
+private fun StatsSection(modifier: Modifier = Modifier) {
     val stats by Stats.snapshot.collectAsState()
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        SpeedTile(Modifier.weight(1f), Icons.Rounded.ArrowUpward, "Tải lên", formatSpeed(stats.upSpeed), formatBytes(stats.up))
-        SpeedTile(Modifier.weight(1f), Icons.Rounded.ArrowDownward, "Tải xuống", formatSpeed(stats.downSpeed), formatBytes(stats.down))
-    }
-    Spacer(Modifier.height(12.dp))
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        MiniStat(Modifier.weight(1f), Icons.Rounded.Hub, "${stats.tcp}", "Kết nối")
-        MiniStat(Modifier.weight(1f), Icons.Rounded.CallSplit, "${stats.bypassed}", "Đã lách")
-        MiniStat(Modifier.weight(1f), Icons.Rounded.Dns, "${stats.dns}", "DNS")
-        MiniStat(Modifier.weight(1f), Icons.Rounded.Block, "${stats.quic}", "QUIC")
+    Column(modifier) {
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            SpeedTile(Modifier.weight(1f), Icons.Rounded.ArrowUpward, "Tải lên", formatSpeed(stats.upSpeed), formatBytes(stats.up))
+            SpeedTile(Modifier.weight(1f), Icons.Rounded.ArrowDownward, "Tải xuống", formatSpeed(stats.downSpeed), formatBytes(stats.down))
+        }
+        Spacer(Modifier.height(10.dp))
+        GlassCard(Modifier.fillMaxWidth(), refract = true) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                MiniStat(Icons.Rounded.Hub, "${stats.tcp}", "Kết nối")
+                MiniStat(Icons.Rounded.CallSplit, "${stats.bypassed}", "Đã lách")
+                MiniStat(Icons.Rounded.Dns, "${stats.dns}", "DNS")
+                MiniStat(Icons.Rounded.Block, "${stats.quic}", "QUIC")
+            }
+        }
     }
 }
 
 @Composable
 private fun SpeedTile(modifier: Modifier, icon: ImageVector, label: String, speed: String, total: String) {
-    GlassCard(modifier, highlight = true) {
+    GlassCard(modifier, highlight = true, refract = true) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(28.dp).clip(RoundedCornerShape(9.dp)).background(Color(0x22FFFFFF)), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(28.dp).clip(RoundedCornerShape(9.dp)).background(Color(0x26FFFFFF)), contentAlignment = Alignment.Center) {
                 Icon(icon, null, tint = Palette.Lavender, modifier = Modifier.size(16.dp))
             }
             Spacer(Modifier.width(8.dp))
-            Text(label, color = Palette.TextDim, style = MaterialTheme.typography.labelMedium)
+            Text(label, color = Palette.TextDim, style = MaterialTheme.typography.labelLarge)
         }
-        Spacer(Modifier.height(12.dp))
-        Text(speed, color = Palette.Text, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-        Text("Tổng $total", color = Palette.TextFaint, style = MaterialTheme.typography.bodySmall)
+        Spacer(Modifier.height(10.dp))
+        Text(speed, color = Palette.Text, fontSize = 21.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+        Text("Tổng $total", color = Palette.TextDim, fontSize = 12.sp)
     }
 }
 
 @Composable
-private fun MiniStat(modifier: Modifier, icon: ImageVector, value: String, label: String) {
-    GlassCard(modifier) {
-        Icon(icon, null, tint = Palette.Cyan, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.height(8.dp))
-        Text(value, color = Palette.Text, style = MaterialTheme.typography.titleMedium, maxLines = 1)
-        Text(label, color = Palette.TextFaint, fontSize = 11.sp, maxLines = 1)
-    }
-}
-
-@Composable
-private fun CommandCard(vm: MainViewModel) {
-    val cfg by vm.config.collectAsState()
-    val cmd = remember(cfg) { vm.commandLine(cfg) }
-    val clip = LocalClipboardManager.current
-    GlassCard(Modifier.fillMaxWidth()) {
+private fun MiniStat(icon: ImageVector, value: String, label: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.semantics(mergeDescendants = true) {}) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Rounded.Terminal, null, tint = Palette.Violet, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text("Lệnh tương đương trên PC", color = Palette.TextDim, style = MaterialTheme.typography.labelMedium,
-                modifier = Modifier.weight(1f))
-            IconButton(onClick = { clip.setText(AnnotatedString(cmd)) }, modifier = Modifier.size(32.dp)) {
-                Icon(Icons.Rounded.ContentCopy, "Sao chép", tint = Palette.TextDim, modifier = Modifier.size(16.dp))
-            }
+            Icon(icon, null, tint = Palette.Cyan, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(5.dp))
+            Text(value, color = Palette.Text, style = MaterialTheme.typography.titleMedium, maxLines = 1)
         }
-        Spacer(Modifier.height(6.dp))
-        Text(cmd, style = Mono, color = Palette.Lavender)
+        Text(label, color = Palette.TextDim, fontSize = 12.sp, maxLines = 1)
     }
 }
