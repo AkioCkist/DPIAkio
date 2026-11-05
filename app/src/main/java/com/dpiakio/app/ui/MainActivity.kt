@@ -65,6 +65,8 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
@@ -134,15 +136,15 @@ private fun App(vm: MainViewModel) {
     }
     val run by vm.runState.collectAsState()
 
-    // bg: what glass surfaces inside screens refract. content: what the tab bar refracts.
+    // Single backdrop: the background layer. Every glass surface (incl. the tab bar) refracts it,
+    // so no full-screen content layer has to be re-recorded each frame.
     val bg = rememberLayerBackdrop()
-    val content = rememberLayerBackdrop()
     val navInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val statusInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val pad = PaddingValues(top = statusInset, bottom = navInset + NavHeight + NavGap * 2)
 
     Box(Modifier.fillMaxSize().background(Palette.Bg)) {
-        Box(Modifier.fillMaxSize().layerBackdrop(content)) {
+        Box(Modifier.fillMaxSize()) {
             Box(Modifier.fillMaxSize().layerBackdrop(bg)) {
                 AppBackground(home = tab == 0, active = run.status == DpiVpnService.Status.RUNNING)
             }
@@ -162,7 +164,7 @@ private fun App(vm: MainViewModel) {
             }
         }
         GlassTabBar(
-            content, tab, { tab = it },
+            bg, tab, { tab = it },
             Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = NavGap),
         )
     }
@@ -174,8 +176,9 @@ private fun App(vm: MainViewModel) {
  */
 @Composable
 private fun AppBackground(home: Boolean, active: Boolean) {
+    // Static gradients: rendered once into a cached texture, never re-shaded.
     Box(
-        Modifier.fillMaxSize().drawWithCache {
+        Modifier.fillMaxSize().graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen).drawWithCache {
             val top = Brush.radialGradient(
                 listOf(Color(0xFF2A3BD9).copy(alpha = 0.34f), Color(0x00000000)),
                 center = Offset(size.width * 0.5f, -size.width * 0.15f), radius = size.width * 1.1f,

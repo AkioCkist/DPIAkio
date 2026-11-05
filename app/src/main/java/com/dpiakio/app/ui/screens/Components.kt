@@ -61,7 +61,6 @@ import com.kyant.backdrop.backdrops.emptyBackdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
-import com.kyant.backdrop.shadow.Shadow
 
 /** The app background layer that every glass surface samples (blur + refraction). */
 val LocalBackdrop = compositionLocalOf<Backdrop> { emptyBackdrop() }
@@ -69,7 +68,6 @@ val LocalBackdrop = compositionLocalOf<Backdrop> { emptyBackdrop() }
 /** Barely-there tint: keeps the glass clear while giving text a little contrast. */
 private val GlassTint = Color(0x80030820)        // ~50%: AA text contrast over the planet
 private val GlassTintStrong = Color(0x73050B2E)
-private val SoftShadow = Shadow(radius = 20.dp, color = Color(0x66000010))
 
 /**
  * Clear Liquid Glass (Kyant0/AndroidLiquidGlass): no frosting by default — the backdrop is
@@ -91,7 +89,7 @@ fun Modifier.liquidGlass(
         if (blurRadius > 0.dp) blur(blurRadius.toPx())
         if (refraction > 0.dp) lens(refraction.toPx(), refraction.toPx() * 2.2f, depthEffect = true, chromaticAberration = dispersion)
     },
-    shadow = { SoftShadow },
+    shadow = null,   // dark-on-dark shadow is invisible here but costs a blur pass per frame
     onDrawSurface = { drawRect(tint) },
 )
 
@@ -118,7 +116,7 @@ fun GlassCard(
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .then(
                 if (refract) Modifier.liquidGlass(backdrop, CardShape, refraction = if (highlight) 22.dp else 16.dp,
-                    tint = if (highlight) GlassTintStrong else GlassTint, dispersion = highlight)
+                    tint = if (highlight) GlassTintStrong else GlassTint)
                 // Static glass for long lists: clear fill + specular rim, no offscreen passes while scrolling.
                 else Modifier.clip(CardShape).background(if (highlight) StaticFillHi else StaticFill)
                     .border(if (highlight) 1.5.dp else 1.dp, if (highlight) RimHi else Rim, CardShape)

@@ -268,6 +268,55 @@ debug signing configuration so the APK can be sideloaded for development. It
 is not a production signing setup; replace it with a private release keystore
 before publishing.
 
+## Release build and install over USB (max performance)
+
+Enable **Developer options → USB debugging** on the phone, connect it by USB and
+accept the "Allow USB debugging" prompt. Then, from the project root in
+PowerShell:
+
+```powershell
+# 1. Use the JDK bundled with Android Studio (skip if JAVA_HOME is already set)
+$env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
+
+# 2. Clean optimized release build: R8 full optimization + resource shrinking,
+#    non-debuggable, Compose baseline profiles included
+.\gradlew.bat clean assembleRelease
+
+# 3. Check that the phone is listed as "device"
+adb devices
+
+# 4. Install (or update in place, keeping settings)
+adb install -r app\build\outputs\apk\release\app-release.apk
+
+# 5. Ahead-of-time compile the whole app to native code (fastest runtime,
+#    no JIT warm-up on first launches)
+adb shell cmd package compile -m speed -f com.dpiakio.app
+
+# 6. Launch
+adb shell am start -n com.dpiakio.app/.ui.MainActivity
+```
+
+Everything in one line:
+
+```powershell
+$env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"; .\gradlew.bat clean assembleRelease; if ($?) { adb install -r app\build\outputs\apk\release\app-release.apk; adb shell cmd package compile -m speed -f com.dpiakio.app; adb shell am start -n com.dpiakio.app/.ui.MainActivity }
+```
+
+Notes:
+
+- If several devices or an emulator are connected, add `-s <serial>` (from
+  `adb devices`) after `adb`, e.g. `adb -s RFCW70YX7RP install -r ...`.
+- `adb` lives in `%LOCALAPPDATA%\Android\Sdk\platform-tools` if it is not on
+  `PATH`.
+- `INSTALL_FAILED_UPDATE_INCOMPATIBLE` means the installed copy was signed with
+  a different key. Run `adb uninstall com.dpiakio.app` first — this also erases
+  the app's saved settings.
+- Check the AOT state with
+  `adb shell dumpsys package dexopt | Select-String -Context 0,3 com.dpiakio.app`
+  — it should report `status=speed`. Android may later downgrade it during
+  background maintenance; re-run step 5 if needed.
+- Reinstalling stops a running VPN session; start it again from the app.
+
 ## Permissions and Android behavior
 
 The manifest declares permissions for:

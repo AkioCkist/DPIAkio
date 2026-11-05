@@ -46,13 +46,11 @@ import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Hub
-import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PowerSettingsNew
 import androidx.compose.material.icons.rounded.RadioButtonUnchecked
 import androidx.compose.material.icons.rounded.SignalCellularAlt
 import androidx.compose.material.icons.rounded.Sync
-import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Wifi
 import androidx.compose.material.icons.rounded.WifiOff
 import androidx.compose.material3.Icon
@@ -131,7 +129,10 @@ fun HomeScreen(
             .padding(bottom = contentPadding.calculateBottomPadding()),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        TopBar(onOpenSettings, onOpenModes)
+        Text(
+            "DPIAKIO", modifier = Modifier.padding(top = 18.dp),
+            color = Palette.Text, fontSize = 20.sp, fontWeight = FontWeight.Light, letterSpacing = 7.sp,
+        )
         Spacer(Modifier.height(14.dp))
         StatusPill(ui, run.error)
         Spacer(Modifier.height(6.dp))
@@ -144,21 +145,6 @@ fun HomeScreen(
         Spacer(Modifier.weight(0.6f))
         StatsSection(Modifier.padding(horizontal = 18.dp))
         Spacer(Modifier.height(12.dp))
-    }
-}
-
-@Composable
-private fun TopBar(onSettings: () -> Unit, onModes: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        GlassIconButton(Icons.Rounded.Tune, "Mở cài đặt tuỳ chỉnh", onSettings)
-        Text(
-            "DPIAKIO", modifier = Modifier.weight(1f), textAlign = TextAlign.Center,
-            color = Palette.Text, fontSize = 20.sp, fontWeight = FontWeight.Light, letterSpacing = 7.sp,
-        )
-        GlassIconButton(Icons.Rounded.Layers, "Chọn chế độ", onModes, tint = Palette.Amber)
     }
 }
 
@@ -349,7 +335,7 @@ private fun StatsSection(modifier: Modifier = Modifier) {
             SpeedTile(Modifier.weight(1f), Icons.Rounded.ArrowDownward, "Tải xuống", formatSpeed(stats.downSpeed), formatBytes(stats.down))
         }
         Spacer(Modifier.height(10.dp))
-        GlassCard(Modifier.fillMaxWidth(), refract = true) {
+        GlassCard(Modifier.fillMaxWidth()) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 MiniStat(Icons.Rounded.Hub, "${stats.tcp}", "Kết nối")
                 MiniStat(Icons.Rounded.CallSplit, "${stats.bypassed}", "Đã lách")

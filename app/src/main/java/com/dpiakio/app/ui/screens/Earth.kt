@@ -21,7 +21,11 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
@@ -75,6 +79,8 @@ private object EarthMask {
  * dot grid of ~1.5°, looks the cell up in the land mask and lights land dots, with a fresnel
  * rim and an atmosphere glow outside the disc.
  */
+private const val RENDER_SCALE = 0.6f
+
 private const val EARTH_AGSL = """
 uniform float2 center;
 uniform float radius;
@@ -171,16 +177,38 @@ fun EarthGlobe(active: Boolean, modifier: Modifier = Modifier) {
     if (Build.VERSION.SDK_INT >= 33) {
         val shader = remember { earthShader(ctx) }
         val brush = remember { ShaderBrush(shader) }
-        Spacer(modifier.graphicsLayer().drawWithCache {
-            val r = EarthLayout.radius(size.width)
-            shader.setFloatUniform("center", size.width / 2, centerPx)
-            shader.setFloatUniform("radius", r)
-            onDrawBehind {
-                shader.setFloatUniform("rot", angle.floatValue)
-                shader.setFloatUniform("energy", energy.floatValue)
-                drawRect(brush)
-            }
-        })
+        // Shaded at 60 % resolution into an offscreen texture (once per frame, reused by every
+        // glass surface) and scaled up — the soft glow hides the difference, the GPU does ~1/3 the work.
+        val k = RENDER_SCALE
+        Spacer(
+            modifier
+                .layout { m, c ->
+                    val w = c.maxWidth; val h = c.maxHeight
+                    val p = m.measure(Constraints.fixed((w * k).toInt().coerceAtLeast(1), (h * k).toInt().coerceAtLeast(1)))
+                    layout(w, h) {
+                        p.placeWithLayer(0, 0) {
+                            scaleX = 1f / k; scaleY = 1f / k
+                            transformOrigin = TransformOrigin(0f, 0f)
+                            compositingStrategy = CompositingStrategy.Offscreen
+                        }
+                    }
+                }
+                .drawWithCache {
+                    val r = EarthLayout.radius(size.width)
+                    val cy = centerPx * k
+                    shader.setFloatUniform("center", size.width / 2, cy)
+                    shader.setFloatUniform("radius", r)
+                    // Only the disc + atmosphere band is shaded, not the whole screen.
+                    val top = (cy - r * 1.6f).coerceAtLeast(0f)   // glow < 1% beyond this
+                    val area = androidx.compose.ui.geometry.Size(size.width, (size.height - top).coerceAtLeast(0f))
+                    val origin = Offset(0f, top)
+                    onDrawBehind {
+                        shader.setFloatUniform("rot", angle.floatValue)
+                        shader.setFloatUniform("energy", energy.floatValue)
+                        drawRect(brush, topLeft = origin, size = area)
+                    }
+                }
+        )
     } else {
         CpuEarth(angle, energy, centerPx, modifier)
     }
