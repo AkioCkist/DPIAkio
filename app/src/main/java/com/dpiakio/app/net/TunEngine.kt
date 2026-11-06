@@ -40,8 +40,28 @@ class TunEngine(
         Thread(r, "dpi-timer").apply { isDaemon = true }
     }
     val prober = TtlProber(vpn, pool)
-    /** Destinations where a fake segment reached the server and broke the connection. */
-    val fakeBroken = ConcurrentHashMap<InetAddress, Boolean>()
+    /**
+     * Subnets (/24 IPv4, /48 IPv6) where a fake segment reached the server and broke the
+     * connection. Keyed by subnet: CDN / Google Global Cache nodes share a prefix and a path,
+     * so one failure is enough instead of one broken connection per server IP.
+     */
+    private val fakeBroken = ConcurrentHashMap<String, Boolean>()
+
+    private fun subnetKey(a: InetAddress): String {
+        val b = a.address
+        val n = if (b.size == 4) 3 else 6
+        return (0 until n).joinToString(if (b.size == 4) "." else ":") {
+            if (b.size == 4) (b[it].toInt() and 0xFF).toString() else "%02x".format(b[it].toInt() and 0xFF)
+        } + if (b.size == 4) ".0/24" else "::/48"
+    }
+
+    fun isFakeBroken(a: InetAddress) = fakeBroken.containsKey(subnetKey(a))
+
+    fun markFakeBroken(a: InetAddress, why: String) {
+        val k = subnetKey(a)
+        if (fakeBroken.putIfAbsent(k, true) == null)
+            AppLog.w("${FlowKey.fmt(a)}: $why sau gói giả (TTL lọt tới server) — tắt fake cho $k")
+    }
 
     private val out = FileOutputStream(tun.fileDescriptor)
     private val tcp = ConcurrentHashMap<FlowKey, TcpSession>()
@@ -75,6 +95,7 @@ class TunEngine(
     /** Default network changed (Wi-Fi <-> mobile): old sockets are bound to a dead path. */
     fun onNetworkChanged() {
         val n = tcp.size
+        fakeBroken.clear()   // new path, new hop counts
         tcp.values.forEach { runCatching { it.abort() } }
         udp.values.forEach { runCatching { it.close() } }
         if (n > 0) AppLog.i("Đổi mạng: đã reset $n kết nối TCP để ứng dụng kết nối lại ngay")

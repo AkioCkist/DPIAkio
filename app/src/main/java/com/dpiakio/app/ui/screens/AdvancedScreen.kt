@@ -8,6 +8,18 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.material.icons.rounded.ArrowDropDown
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -76,6 +88,7 @@ fun AdvancedScreen(vm: MainViewModel, contentPadding: PaddingValues) {
     val ctx = LocalContext.current
     var showImport by remember { mutableStateOf(false) }
     var showCustomList by remember { mutableStateOf(false) }
+    var showDns by remember { mutableStateOf(false) }
     val clip = LocalClipboardManager.current
 
     Column(
@@ -207,15 +220,15 @@ fun AdvancedScreen(vm: MainViewModel, contentPadding: PaddingValues) {
             Text("Gửi mọi truy vấn DNS UDP tới resolver chỉ định (chống đầu độc DNS).", color = Palette.TextFaint,
                 style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(8.dp))
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                DNS_PRESETS.forEach { d ->
-                    Pill(d.name, o.dnsV4Addr == d.v4 && o.dnsV4Port == d.port, {
-                        vm.editTargets { it.copy(dnsV4Addr = d.v4, dnsV4Port = d.port, dnsV6Addr = d.v6, dnsV6Port = d.port) }
-                    })
-                }
-                Pill("Tắt", !o.dnsV4Redirect && !o.dnsV6Redirect, {
-                    vm.editTargets { it.copy(dnsV4Addr = "", dnsV4Port = 53, dnsV6Addr = "", dnsV6Port = 53) }
-                })
+            val current = when {
+                !o.dnsV4Redirect && !o.dnsV6Redirect -> "Tắt — dùng DNS của mạng"
+                else -> DNS_PRESETS.firstOrNull { it.matches(o) }?.name ?: "Tuỳ chỉnh"
+            }
+            OutlinedButton(onClick = { showDns = true }, Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
+                Icon(Icons.Rounded.Dns, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(current, Modifier.weight(1f), color = Palette.Text)
+                Icon(Icons.Rounded.ArrowDropDown, null)
             }
             Spacer(Modifier.height(10.dp))
             DnsFields(o, v6 = false, vm)
@@ -284,16 +297,141 @@ fun AdvancedScreen(vm: MainViewModel, contentPadding: PaddingValues) {
 
     if (showImport) ImportDialog(vm) { showImport = false }
     if (showCustomList) CustomListDialog(vm) { showCustomList = false }
+    if (showDns) DnsPickerDialog(o, vm) { showDns = false }
 }
 
-private data class DnsPreset(val name: String, val v4: String, val v6: String, val port: Int)
+private enum class DnsGroup(val title: String) {
+    PLAIN("Không lọc"), ASIA("Châu Á"), BLOCK("Chặn QC / mã độc"), FAMILY("Gia đình"), RUSSIA("Nga"),
+}
+
+/** [v6] empty = provider has no IPv6 resolver; IPv6 queries then keep the system DNS. */
+private data class DnsPreset(val name: String, val group: DnsGroup, val v4: String, val v6: String, val port: Int,
+                             val note: String? = null) {
+    fun matches(o: DpiOptions) = o.dnsV4Addr == v4 && o.dnsV4Port == port
+}
 
 private val DNS_PRESETS = listOf(
-    DnsPreset("Yandex :1253", Presets.YANDEX_DNS_V4, Presets.YANDEX_DNS_V6, Presets.YANDEX_DNS_PORT),
-    DnsPreset("AdGuard :5353", "94.140.14.14", "2a10:50c0::ad1:ff", 5353),
-    DnsPreset("Cloudflare", "1.1.1.1", "2606:4700:4700::1111", 53),
-    DnsPreset("Google", "8.8.8.8", "2001:4860:4860::8888", 53),
+    DnsPreset("Cloudflare", DnsGroup.PLAIN, "1.1.1.1", "2606:4700:4700::1111", 53),
+    DnsPreset("Google", DnsGroup.PLAIN, "8.8.8.8", "2001:4860:4860::8888", 53),
+    DnsPreset("Quad9 ECS", DnsGroup.PLAIN, "9.9.9.11", "2620:fe::11", 53,
+        "Gửi dải IP của bạn: Google/YouTube trả server gần nhất"),
+    DnsPreset("Quad9", DnsGroup.PLAIN, "9.9.9.9", "2620:fe::fe", 53, "Chặn tên miền độc hại"),
+    DnsPreset("OpenDNS", DnsGroup.PLAIN, "208.67.222.222", "2620:119:35::35", 53),
+    DnsPreset("Control D", DnsGroup.PLAIN, "76.76.2.0", "2606:1a40::", 53),
+    DnsPreset("AdGuard (không lọc)", DnsGroup.PLAIN, "94.140.14.140", "2a10:50c0::1:ff", 53),
+    DnsPreset("DNS.WATCH", DnsGroup.PLAIN, "84.200.69.80", "2001:1608:10:25::1c04:b12f", 53),
+    DnsPreset("Hurricane Electric", DnsGroup.PLAIN, "74.82.42.42", "2001:470:20::2", 53),
+    DnsPreset("Level3", DnsGroup.PLAIN, "4.2.2.2", "", 53),
+    DnsPreset("AliDNS", DnsGroup.ASIA, "223.5.5.5", "2400:3200::1", 53),
+    DnsPreset("DNSPod", DnsGroup.ASIA, "119.29.29.29", "2402:4e00::", 53),
+    DnsPreset("AdGuard chặn QC", DnsGroup.BLOCK, "94.140.14.14", "2a10:50c0::ad1:ff", 53),
+    DnsPreset("AdGuard :5353", DnsGroup.BLOCK, "94.140.14.14", "2a10:50c0::ad1:ff", 5353, "Cổng lạ, né chặn DNS cổng 53"),
+    DnsPreset("Cloudflare chặn mã độc", DnsGroup.BLOCK, "1.1.1.2", "2606:4700:4700::1112", 53),
+    DnsPreset("CleanBrowsing", DnsGroup.BLOCK, "185.228.168.9", "2a0d:2a00:1::2", 53),
+    DnsPreset("Comodo", DnsGroup.BLOCK, "8.26.56.26", "", 53),
+    DnsPreset("Cloudflare gia đình", DnsGroup.FAMILY, "1.1.1.3", "2606:4700:4700::1113", 53),
+    DnsPreset("AdGuard gia đình", DnsGroup.FAMILY, "94.140.14.15", "2a10:50c0::bad1:ff", 53),
+    DnsPreset("OpenDNS gia đình", DnsGroup.FAMILY, "208.67.222.123", "2620:119:35::123", 53),
+    DnsPreset("Yandex :1253", DnsGroup.RUSSIA, Presets.YANDEX_DNS_V4, Presets.YANDEX_DNS_V6, Presets.YANDEX_DNS_PORT,
+        "Mặc định GoodbyeDPI — chỉ hợp khi ở Nga"),
 )
+
+@Composable
+private fun DnsPickerDialog(o: DpiOptions, vm: MainViewModel, onDismiss: () -> Unit) {
+    var group by remember { mutableStateOf<DnsGroup?>(null) }   // null = "Tất cả"
+    fun pick(v4: String, v6: String, port: Int) {
+        vm.editTargets { it.copy(dnsV4Addr = v4, dnsV4Port = port, dnsV6Addr = v6, dnsV6Port = port) }
+        onDismiss()
+    }
+    val panel = RoundedCornerShape(28.dp)
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                // dark base under the clear glass so text stays readable over the dimmed screen
+                .background(Color(0xE6070C2C), panel)
+                .glassSurface(panel, highlight = true)
+                .padding(vertical = 18.dp),
+        ) {
+            Row(Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.Dns, null, tint = Palette.Cyan, modifier = Modifier.size(22.dp))
+                Spacer(Modifier.width(10.dp))
+                Text("Chọn DNS", style = MaterialTheme.typography.titleLarge, color = Palette.Text, modifier = Modifier.weight(1f))
+            }
+            Spacer(Modifier.height(14.dp))
+            Row(
+                Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Pill("Tất cả", group == null, { group = null })
+                DnsGroup.entries.forEach { g -> Pill(g.title, group == g, { group = g }) }
+            }
+            Spacer(Modifier.height(12.dp))
+            GlassDivider()
+            val off = !o.dnsV4Redirect && !o.dnsV6Redirect
+            LazyColumn(
+                Modifier.heightIn(max = 440.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+            ) {
+                if (group == null) {
+                    item { DnsRow("Tắt", "Dùng DNS của mạng (nhà mạng / router)", null, off) { pick("", "", 53) } }
+                }
+                DnsGroup.entries.filter { group == null || it == group }.forEach { g ->
+                    if (group == null) item {
+                        Row(Modifier.padding(start = 8.dp, end = 8.dp, top = 14.dp, bottom = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Text(g.title.uppercase(), color = Palette.Cyan, style = MaterialTheme.typography.labelMedium)
+                            Spacer(Modifier.width(10.dp))
+                            GlassDivider(Modifier.weight(1f), inset = 0.dp)
+                        }
+                    }
+                    val list = DNS_PRESETS.filter { it.group == g }
+                    itemsIndexed(list) { i, d ->
+                        val addr = d.v4 + (if (d.port != 53) ":${d.port}" else "") + (if (d.v6.isEmpty()) " · không IPv6" else "")
+                        DnsRow(d.name, addr, d.note, !off && d.matches(o)) { pick(d.v4, d.v6, d.port) }
+                        if (i < list.lastIndex) GlassDivider(Modifier.fillMaxWidth(), inset = 12.dp)
+                    }
+                }
+            }
+            GlassDivider()
+            Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 8.dp), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onDismiss) { Text("Đóng", color = Palette.Lavender) }
+            }
+        }
+    }
+}
+
+/** Hairline separator with the glass rim's light gradient. */
+@Composable
+private fun GlassDivider(modifier: Modifier = Modifier.fillMaxWidth(), inset: Dp = 0.dp) {
+    Box(
+        modifier
+            .padding(horizontal = inset)
+            .height(1.dp)
+            .background(Brush.horizontalGradient(listOf(Color(0x14FFFFFF), Color(0x4DB0C4FF), Color(0x14FFFFFF)))),
+    )
+}
+
+@Composable
+private fun DnsRow(name: String, addr: String, note: String?, selected: Boolean, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(18.dp)
+    Row(
+        Modifier.fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .then(if (selected) Modifier.glassSurface(shape, highlight = true) else Modifier.clip(shape))
+            .clickable(role = Role.RadioButton, onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(name, color = Palette.Text, style = MaterialTheme.typography.bodyLarge)
+            Text(addr, color = if (selected) Palette.Lavender else Palette.TextFaint, style = Mono)
+            if (note != null) Text(note, color = Palette.TextDim, style = MaterialTheme.typography.bodySmall)
+        }
+        if (selected) Icon(Icons.Rounded.Check, "Đang dùng", tint = Palette.Green)
+    }
+}
 
 @Composable
 private fun DnsFields(o: DpiOptions, v6: Boolean, vm: MainViewModel) {

@@ -303,7 +303,15 @@ class TcpSession(
                 val n = try { Os.read(f, buf, 0, buf.size) } catch (e: ErrnoException) {
                     if (e.errno == EINTR) continue else throw e
                 }
-                if (n <= 0) break
+                if (n <= 0) {
+                    // Server closed before answering our (faked) ClientHello at all.
+                    if (fakeSent && !gotData) eng.markFakeBroken(remote, "máy chủ đóng kết nối")
+                    break
+                }
+                // First bytes are a TLS alert record (0x15 0x03 ..): the server saw the fake
+                // bytes as the start of the handshake and rejected it.
+                if (fakeSent && !gotData && n >= 2 && buf[0] == 0x15.toByte() && buf[1] == 0x03.toByte())
+                    eng.markFakeBroken(remote, "máy chủ trả TLS alert")
                 gotData = true
                 Stats.bytesDown.addAndGet(n.toLong())
                 synchronized(lock) {
@@ -324,9 +332,8 @@ class TcpSession(
                 trySendLocked()
             }
         } catch (t: Throwable) {
-            if (fakeSent && !gotData && (t as? ErrnoException)?.errno == ECONNRESET && eng.fakeBroken.putIfAbsent(remote, true) == null) {
-                AppLog.w("${FlowKey.fmt(remote)}: máy chủ reset sau gói giả (TTL lọt tới server) — tắt fake cho IP này")
-            }
+            if (fakeSent && !gotData && (t as? ErrnoException)?.errno == ECONNRESET)
+                eng.markFakeBroken(remote, "máy chủ reset")
             if (!closed.get()) {
                 AppLog.d("TCP $key: remote: ${t.message}")
                 abort()
@@ -411,7 +418,7 @@ class TcpSession(
 
     override fun sendFake(fake: ByteArray, real: ByteArray, off: Int, n: Int, ttl: Int): Boolean {
         if (!NativeBridge.loaded || rawFd < 0) return false
-        if (eng.fakeBroken.containsKey(remote)) return false
+        if (eng.isFakeBroken(remote)) return false
         val r = NativeBridge.sendFake(rawFd, fake, real, off, n, ttl, defTtl, v6)
         if (r != n) {
             AppLog.d("TCP $key: sendFake failed ($r)")
@@ -458,7 +465,9 @@ class TcpSession(
             }
             val idle = now - lastActivity
             val limit = if (clientFin || finSent) 60_000L else IDLE_TIMEOUT_MS
-            if (idle > limit) closeInternalLocked()
+            // RST, not a silent close: otherwise the app keeps a "healthy" pooled socket
+            // (HTTP/2, gRPC) and its next request dies with ECONNRESET -> "no connection".
+            if (idle > limit) abortLocked()
         }
     }
 

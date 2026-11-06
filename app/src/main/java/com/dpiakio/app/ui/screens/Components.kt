@@ -99,6 +99,11 @@ private val StaticFillHi = Brush.verticalGradient(listOf(Color(0x2E8F7BFF), Colo
 private val Rim = Brush.linearGradient(listOf(Color(0x66FFFFFF), Color(0x14FFFFFF), Color(0x0AFFFFFF), Color(0x40B0C4FF)))
 private val RimHi = Brush.linearGradient(listOf(Color(0xCCD9D2FF), Color(0x337C4DFF), Color(0x1A3D5AFE), Color(0x996EA8FF)))
 
+/** Static glass: clear gradient fill + specular rim (no offscreen passes; safe in lists and dialogs). */
+fun Modifier.glassSurface(shape: Shape, highlight: Boolean = false): Modifier =
+    this.clip(shape).background(if (highlight) StaticFillHi else StaticFill)
+        .border(if (highlight) 1.5.dp else 1.dp, if (highlight) RimHi else Rim, shape)
+
 @Composable
 fun GlassCard(
     modifier: Modifier = Modifier,
@@ -118,8 +123,7 @@ fun GlassCard(
                 if (refract) Modifier.liquidGlass(backdrop, CardShape, refraction = if (highlight) 22.dp else 16.dp,
                     tint = if (highlight) GlassTintStrong else GlassTint)
                 // Static glass for long lists: clear fill + specular rim, no offscreen passes while scrolling.
-                else Modifier.clip(CardShape).background(if (highlight) StaticFillHi else StaticFill)
-                    .border(if (highlight) 1.5.dp else 1.dp, if (highlight) RimHi else Rim, CardShape)
+                else Modifier.glassSurface(CardShape, highlight)
             )
             .then(
                 if (onClick != null) Modifier.clip(CardShape).clickable(interactionSource = source, indication = null,
